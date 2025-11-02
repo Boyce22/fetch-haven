@@ -1,0 +1,19 @@
+{
+  "name": "fetch-haven",
+  "version": "1.0.0",
+  "description": "",
+  "type": "commonjs",
+  "main": "watch -env-file=.env index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "axios": "^1.13.1",
+    "bunyan": "^1.8.15",
+    "inquirer": "^8.2.7",
+    "p-limit": "^3.1.0"
+  }
+}
