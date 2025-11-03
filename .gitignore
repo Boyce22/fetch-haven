@@ -2,6 +2,8 @@
 
 *.log
 
+cache/*
+
 downloads/*
 
 node_modules/

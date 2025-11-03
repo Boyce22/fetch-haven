@@ -1,9 +1,11 @@
+require('dotenv').config();
+
 const path = require('path');
 const inquirer = require('inquirer');
 const yargs = require('yargs/yargs');
 const { hideBin } = require('yargs/helpers');
-const { downloader } = require('./downloader');
-require('dotenv').config();
+const { downloader, logger } = require('./downloader');
+const { listVariableSets, loadVariables, saveVariables } = require('./cache');
 
 async function main() {
   try {
@@ -51,10 +53,126 @@ function parseArgsConfig(argv) {
 }
 
 async function promptUserConfig() {
-  const questions = [
-    { type: 'input', name: 'baseUrl', message: 'Informe o domínio base:', default: process.env.BASE_URL },
-    { type: 'input', name: 'dataUpload', message: 'Informe o caminho:', default: process.env.DATA_UPLOAD },
-    { type: 'input', name: 'name', message: 'Informe o nome do álbum:', default: process.env.ALBUM_NAME },
+  const action = await promptMainMenu();
+  return await handleUserAction(action);
+}
+
+async function promptMainMenu() {
+  console.clear();
+
+  const options = [
+    { name: '🆕 - Criar nova configuração', value: 'create' },
+    { name: '🧩 - Usar configuração existente', value: 'use' },
+    { name: '📄 - Listar configurações salvas', value: 'list' },
+    { name: '🚪 - Sair', value: 'exit' },
+  ];
+
+  const { action } = await inquirer.prompt([
+    { type: 'list', name: 'action', message: 'Selecione uma opção:', choices: options },
+  ]);
+
+  return action;
+}
+
+async function handleUserAction(action) {
+  const actions = {
+    exit: () => handleExit(),
+    list: handleListConfigurations,
+    use: handleUseConfiguration,
+    create: handleCreateConfiguration,
+  };
+
+  const handler = actions[action];
+  return handler ? await handler() : promptUserConfig();
+}
+
+function handleExit() {
+  console.clear();
+  console.log('👋 Encerrando...');
+  process.exit(0);
+}
+
+async function handleListConfigurations() {
+  console.clear();
+
+  const configs = listVariableSets();
+  displayConfigurations(configs);
+
+  await pause();
+  return promptUserConfig();
+}
+
+async function handleUseConfiguration() {
+  console.clear();
+
+  const configs = listVariableSets();
+  if (configs.length === 0) {
+    console.log('⚠️  Nenhuma configuração salva. Crie uma nova.\n');
+    await pause();
+    return promptUserConfig();
+  }
+
+  const selected = await promptConfigurationSelection(configs);
+  const config = loadVariables(selected);
+
+  console.clear();
+  console.log(`✅ Configuração "${selected}" carregada com sucesso!\n`);
+  console.table(config);
+
+  const additional = await promptAdditionalParameters();
+  const finalConfig = { ...config, ...additional };
+
+  displayFinalConfiguration(finalConfig);
+  return finalConfig;
+}
+
+async function handleCreateConfiguration() {
+  console.clear();
+  console.log('🛠️  Criando nova configuração:\n');
+
+  const data = await promptConfigurationData();
+  const processed = processConfigurationData(data);
+
+  saveVariables(data.configName, processed);
+
+  console.clear();
+  logger.info(`✅ Configuração "${data.configName}" salva com sucesso!\n`);
+  console.table(processed);
+
+  await pause();
+  return promptUserConfig();
+}
+
+function displayConfigurations(configs) {
+  if (configs.length === 0) {
+    console.log('⚠️  Nenhuma configuração encontrada.\n');
+    return;
+  }
+
+  console.log('📦 Configurações salvas:\n');
+  configs.forEach((c, i) => console.log(`${i + 1}. ${c}`));
+  console.log('');
+}
+
+async function pause() {
+  await inquirer.prompt([{ type: 'input', name: 'back', message: 'Pressione ENTER para voltar ao menu' }]);
+}
+
+async function promptConfigurationSelection(configs) {
+  const { selected } = await inquirer.prompt([
+    { type: 'list', name: 'selected', message: 'Escolha uma configuração para usar:', choices: configs },
+  ]);
+  return selected;
+}
+
+async function promptAdditionalParameters() {
+  return inquirer.prompt([
+    {
+      type: 'input',
+      name: 'name',
+      message: 'Informe o nome do álbum:',
+      default: process.env.ALBUM_NAME,
+    },
     {
       type: 'input',
       name: 'inicio',
@@ -77,8 +195,68 @@ async function promptUserConfig() {
       message: 'Diretório de saída:',
       default: process.env.OUTPUT_DIR || './downloads',
     },
-  ];
-  return inquirer.prompt(questions);
+  ]);
+}
+
+async function promptConfigurationData() {
+  return inquirer.prompt([
+    {
+      type: 'input',
+      name: 'baseUrl',
+      message: 'Domínio base:',
+      default: 'https://site-project-madara.com',
+    },
+    {
+      type: 'input',
+      name: 'dataUpload',
+      message: 'Caminho base (ex: wp-content/uploads/2024/09):',
+    },
+    {
+      type: 'input',
+      name: 'pageSeparator',
+      message: 'Separador da página:',
+      default: '/',
+    },
+    {
+      type: 'input',
+      name: 'quantityZeros',
+      message: 'Há quantos zeros antes do número da imagem:',
+      default: 0,
+      validate: validateNumber,
+      filter: parseIntFilter,
+    },
+    {
+      type: 'input',
+      name: 'variables',
+      message: 'Variáveis de template (ex: ${mangaId} ${chapterId}):',
+    },
+    {
+      type: 'input',
+      name: 'configName',
+      message: 'Nome para salvar a configuração:',
+    },
+  ]);
+}
+
+function processConfigurationData(data) {
+  const variables = data.variables
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((v) => `\${${v.replace(/^\$\{?|\}?$/g, '')}}`);
+
+  return {
+    baseUrl: data.baseUrl,
+    dataUpload: data.dataUpload,
+    pageSeparator: data.pageSeparator,
+    variables,
+    quantityZeros: data.quantityZeros,
+  };
+}
+
+function displayFinalConfiguration(config) {
+  console.clear();
+  console.log('⚙️  Configuração final:\n');
+  console.table(config);
 }
 
 function parseEnvInt(value) {
