@@ -117,9 +117,13 @@ async function handleUseConfiguration() {
 
   console.clear();
   console.log(`✅ Configuração "${selected}" carregada com sucesso!\n`);
-  console.table(config);
 
-  const additional = await promptAdditionalParameters();
+  console.table({
+    ...config,
+    variables: config.variables.join(', '),
+  });
+
+  const additional = await promptAdditionalParameters(config);
   const finalConfig = { ...config, ...additional };
 
   displayFinalConfiguration(finalConfig);
@@ -165,8 +169,14 @@ async function promptConfigurationSelection(configs) {
   return selected;
 }
 
-async function promptAdditionalParameters() {
-  return inquirer.prompt([
+async function promptAdditionalParameters({ variables = [] }) {
+  const variableQuestions = variables.map((v) => ({
+    type: 'input',
+    name: v,
+    message: `Informe o valor de ${v}:`,
+  }));
+
+  const fixedQuestions = [
     {
       type: 'input',
       name: 'name',
@@ -177,17 +187,13 @@ async function promptAdditionalParameters() {
       type: 'input',
       name: 'inicio',
       message: 'Número inicial da imagem:',
-      default: parseEnvInt(process.env.INICIO),
-      validate: validateNumber,
-      filter: parseIntFilter,
+      default: parseInt(process.env.INICIO) || 1,
     },
     {
       type: 'input',
       name: 'fim',
       message: 'Número final da imagem:',
-      default: parseEnvInt(process.env.FIM),
-      validate: validateNumber,
-      filter: parseIntFilter,
+      default: parseInt(process.env.FIM) || 10,
     },
     {
       type: 'input',
@@ -195,7 +201,18 @@ async function promptAdditionalParameters() {
       message: 'Diretório de saída:',
       default: process.env.OUTPUT_DIR || './downloads',
     },
-  ]);
+  ];
+
+  const answers = await inquirer.prompt([...fixedQuestions, ...variableQuestions]);
+
+  const variablesValue = {};
+
+  for (const v of variables) {
+    variablesValue[v] = answers[v];
+    delete answers[v];
+  }
+
+  return { ...answers, variablesValue };
 }
 
 async function promptConfigurationData() {
@@ -239,10 +256,7 @@ async function promptConfigurationData() {
 }
 
 function processConfigurationData(data) {
-  const variables = data.variables
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((v) => `\${${v.replace(/^\$\{?|\}?$/g, '')}}`);
+  const variables = data.variables.split(/\s+/).filter(Boolean);
 
   return {
     baseUrl: data.baseUrl,
@@ -255,8 +269,9 @@ function processConfigurationData(data) {
 
 function displayFinalConfiguration(config) {
   console.clear();
+  const { variables, ...rest } = config;
   console.log('⚙️  Configuração final:\n');
-  console.table(config);
+  console.table(rest);
 }
 
 function parseEnvInt(value) {
@@ -283,6 +298,10 @@ function runDownloader(config, numberImageArr) {
     concurrent: config.concurrent,
     retries: config.retries,
     retryDelay: config.retryDelay,
+    variables: config.variables,
+    quantityZeros: config.quantityZeros,
+    variablesValue: config.variablesValue,
+    pageSeparator: config.pageSeparator
   });
 }
 
